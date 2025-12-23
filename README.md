@@ -26,5 +26,21 @@ Setup & Installation
 4. Run the backend: `uvicorn main:app --reload`
 5. Launch the React dashboard.
 
- Deployment
-The agents are containerized using Docker and are ready for deployment on **Google Cloud Run** to ensure high availability and auto-scaling.
+## Deployment
+
+### GitHub Container Registry
+
+The application is automatically built and published to GitHub Container Registry on every push to the `main` branch.
+
+**Pull and run the latest image:**
+
+```bash
+docker pull ghcr.io/sasisundar2211/procurement_agent-:latest
+docker run -p 8000:8000 ghcr.io/sasisundar2211/procurement_agent-:latest
+```
+
+Open your browser and navigate to `http://localhost:8000` to use the application.
+
+### Google Cloud Run
+
+The agents are containerized using Docker and are also ready for deployment on **Google Cloud Run** to ensure high availability and auto-scaling.
