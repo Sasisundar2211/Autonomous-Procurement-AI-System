@@ -27,27 +27,21 @@ def detect_public_only(drift_threshold: float | None = None):
         return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
 
     try:
-        pos_df = pd.read_sql("select * from pos", engine)
-        contracts_df = pd.read_sql("select * from contracts", engine)
+        # Push the JOIN and contract filter to the database so only matched rows
+        # are transferred to Python, instead of loading both full tables.
+        join_sql = """
+            SELECT p.*, c.contract_unit_price
+            FROM pos p
+            JOIN contracts c ON CAST(p.contract_id AS TEXT) = c.contract_id
+            WHERE c.contract_unit_price IS NOT NULL
+        """
+        contracted_pos = pd.read_sql(join_sql, engine)
     except Exception as e:
         print(f"Error reading from database: {e}")
         return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
 
-    if pos_df.empty or contracts_df.empty:
-        print("No data in POs or contracts table.")
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
-
-    # Ensure contract_id is the same type in both dataframes
-    pos_df['contract_id'] = pos_df['contract_id'].astype(str)
-    contracts_df['contract_id'] = contracts_df['contract_id'].astype(str)
-
-    # Merge POs with contracts
-    merged_df = pd.merge(pos_df, contracts_df, on="contract_id", how="left", suffixes=('_po', '_contract'))
-    
-    # Filter for POs with a contract
-    contracted_pos = merged_df[merged_df['contract_unit_price'].notna()].copy()
-    
     if contracted_pos.empty:
+        print("No POs with matching contracts found.")
         return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
 
     # Detect price drift
@@ -72,17 +66,8 @@ def detect_public_only(drift_threshold: float | None = None):
     # Fill the rest with a static message
     drifts['gemini_summary'] = drifts['gemini_summary'].fillna("Drift detected (AI summary skipped for speed)")
 
-    # Rename columns to match frontend expectation
-    drifts.rename(columns={
-        'vendor_id_po': 'vendor_id',
-        'item_id_po': 'item_id'
-    }, inplace=True)
-    
     # Ensure we return the columns the frontend expects
     cols_to_keep = ['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary']
-    
-    # Filter for columns that actually exist
-    existing_cols = [c for c in cols_to_keep if c in drifts.columns]
     
     # Add missing columns with default values if they don't exist
     for col in cols_to_keep:
