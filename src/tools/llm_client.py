@@ -8,6 +8,19 @@ import os
 import requests
 import google.generativeai as genai
 
+# Cache the configured Gemini model to avoid re-initialising on every call.
+_gemini_model = None
+
+def _get_gemini_model():
+    global _gemini_model
+    if _gemini_model is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return None
+        genai.configure(api_key=api_key)
+        _gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    return _gemini_model
+
 def get_llm_provider():
     provider = os.getenv("LLM_PROVIDER", "local")
     return provider
@@ -21,8 +34,9 @@ def summarize_drift_with_gemini(contract_price, po_price):
         return "Gemini API Key not found. Please set GEMINI_API_KEY in .env."
         
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _get_gemini_model()
+        if model is None:
+            return "Gemini API Key not found. Please set GEMINI_API_KEY in .env."
         prompt = f"Here is a price mismatch: Contract ${contract_price}, PO ${po_price}. Write a one-sentence summary for the dashboard."
         response = model.generate_content(prompt)
         return response.text
@@ -41,8 +55,9 @@ def draft_message(prompt):
         resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role":"user","content":prompt}], max_tokens=300)
         return resp.choices[0].message.content
     elif provider == "gemini":
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _get_gemini_model()
+        if model is None:
+            return "DRAFT: " + prompt[:400]
         response = model.generate_content(prompt)
         return response.text
     else:

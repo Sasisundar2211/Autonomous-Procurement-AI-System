@@ -32,19 +32,33 @@ def gen_contracts(vendors, items, n_contracts=30):
 def gen_pos(vendors, items, contracts_df, n_pos=2000, leak_prob=0.03):
     rows=[]
     labels=[]
+    # Pre-compute random choices for vendors, items, and contract flags so we
+    # avoid calling random.choice / DataFrame.sample inside the tight loop.
+    vendor_indices = np.random.randint(0, len(vendors), size=n_pos)
+    item_indices   = np.random.randint(0, len(items),   size=n_pos)
+    use_contract   = np.random.random(size=n_pos) < 0.7
+    contract_indices = np.random.randint(0, len(contracts_df), size=n_pos)
+    leak_flags     = np.random.random(size=n_pos) < leak_prob
+    leak_multipliers = np.random.uniform(1.10, 1.40, size=n_pos)
+    price_jitter   = np.random.uniform(0.95, 1.05, size=n_pos)
+    qtys           = np.random.randint(1, 51, size=n_pos)
+    days_ago       = np.random.randint(0, 181, size=n_pos)
+
     for i in range(n_pos):
-        vendor=random.choice(vendors)
-        item=random.choice(items)
-        contract = contracts_df.sample(1).iloc[0] if random.random() < 0.7 else None
-        if contract is not None and contract["vendor_id"] != vendor["vendor_id"]:
-            contract = None
+        vendor=vendors[vendor_indices[i]]
+        item=items[item_indices[i]]
+        contract = None
+        if use_contract[i]:
+            candidate = contracts_df.iloc[contract_indices[i]]
+            if candidate["vendor_id"] == vendor["vendor_id"]:
+                contract = candidate
         base = item["base_price"]
-        unit_price = base * random.uniform(0.95,1.05)
+        unit_price = base * price_jitter[i]
         leak=False
-        if random.random() < leak_prob:
-            unit_price *= random.uniform(1.10,1.40)
+        if leak_flags[i]:
+            unit_price *= leak_multipliers[i]
             leak=True
-        qty = random.randint(1,50)
+        qty = int(qtys[i])
         total = round(unit_price * qty,2)
         po_id = f"PO{str(i).zfill(6)}"
         rows.append({
@@ -54,7 +68,7 @@ def gen_pos(vendors, items, contracts_df, n_pos=2000, leak_prob=0.03):
             "unit_price": round(unit_price,2),
             "qty": qty,
             "total": total,
-            "date": (datetime.date.today() - datetime.timedelta(days=random.randint(0,180))).isoformat(),
+            "date": (datetime.date.today() - datetime.timedelta(days=int(days_ago[i]))).isoformat(),
             "contract_id": contract["contract_id"] if contract is not None else ""
         })
         labels.append({"po_id": po_id, "leak": leak})
