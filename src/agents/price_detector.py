@@ -8,6 +8,9 @@ from src.tools.llm_client import summarize_drift_with_gemini
 db_url = os.getenv("DATABASE_URL", "sqlite:///data/procure.db")
 engine = create_engine(db_url)
 
+# Expected output columns for the drift detection result
+_DRIFT_COLS = ['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary']
+
 def detect_public_only(drift_threshold: float | None = None):
     """
     Detects price drifts in public data.
@@ -24,18 +27,18 @@ def detect_public_only(drift_threshold: float | None = None):
     if not inspector.has_table("pos") or not inspector.has_table("contracts"):
         print("Database tables not found. Please run the ingestor first.")
         # Return an empty dataframe with the expected columns
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return pd.DataFrame(columns=_DRIFT_COLS)
 
     try:
         pos_df = pd.read_sql("select * from pos", engine)
         contracts_df = pd.read_sql("select * from contracts", engine)
     except Exception as e:
         print(f"Error reading from database: {e}")
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return pd.DataFrame(columns=_DRIFT_COLS)
 
     if pos_df.empty or contracts_df.empty:
         print("No data in POs or contracts table.")
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return pd.DataFrame(columns=_DRIFT_COLS)
 
     # Ensure contract_id is the same type in both dataframes
     pos_df['contract_id'] = pos_df['contract_id'].astype(str)
@@ -48,7 +51,7 @@ def detect_public_only(drift_threshold: float | None = None):
     contracted_pos = merged_df[merged_df['contract_unit_price'].notna()].copy()
     
     if contracted_pos.empty:
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return pd.DataFrame(columns=_DRIFT_COLS)
 
     # Detect price drift
     contracted_pos['price_drift'] = contracted_pos['unit_price'] / contracted_pos['contract_unit_price']
@@ -79,7 +82,7 @@ def detect_public_only(drift_threshold: float | None = None):
     }, inplace=True)
     
     # Ensure we return the columns the frontend expects
-    cols_to_keep = ['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary']
+    cols_to_keep = _DRIFT_COLS
     
     # Filter for columns that actually exist
     existing_cols = [c for c in cols_to_keep if c in drifts.columns]
