@@ -12,6 +12,11 @@ def get_llm_provider():
     provider = os.getenv("LLM_PROVIDER", "local")
     return provider
 
+def _get_gemini_model():
+    """Configure Gemini with the API key and return a GenerativeModel instance."""
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    return genai.GenerativeModel('gemini-1.5-flash')
+
 def summarize_drift_with_gemini(contract_price, po_price):
     """
     Uses Gemini to summarize a price drift.
@@ -21,8 +26,7 @@ def summarize_drift_with_gemini(contract_price, po_price):
         return "Gemini API Key not found. Please set GEMINI_API_KEY in .env."
         
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _get_gemini_model()
         prompt = f"Here is a price mismatch: Contract ${contract_price}, PO ${po_price}. Write a one-sentence summary for the dashboard."
         response = model.generate_content(prompt)
         return response.text
@@ -41,8 +45,7 @@ def draft_message(prompt):
         resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role":"user","content":prompt}], max_tokens=300)
         return resp.choices[0].message.content
     elif provider == "gemini":
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = _get_gemini_model()
         response = model.generate_content(prompt)
         return response.text
     else:
