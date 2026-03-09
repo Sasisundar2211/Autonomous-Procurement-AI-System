@@ -1,12 +1,19 @@
 # src/agents/price_detector.py
 import pandas as pd
 import os
-from sqlalchemy import create_engine, inspect
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy import create_engine, inspect, text
 from src.tools.llm_client import summarize_drift_with_gemini
 
 # Use the same database URL as the ingestor, with a fallback
 db_url = os.getenv("DATABASE_URL", "sqlite:///data/procure.db")
 engine = create_engine(db_url)
+
+_EXPECTED_COLS = ['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date',
+                  'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary']
+
+def _empty_result():
+    return pd.DataFrame(columns=_EXPECTED_COLS)
 
 def detect_public_only(drift_threshold: float | None = None):
     """
@@ -23,69 +30,50 @@ def detect_public_only(drift_threshold: float | None = None):
     inspector = inspect(engine)
     if not inspector.has_table("pos") or not inspector.has_table("contracts"):
         print("Database tables not found. Please run the ingestor first.")
-        # Return an empty dataframe with the expected columns
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return _empty_result()
+
+    # Perform the JOIN and drift calculation directly in SQL to avoid loading
+    # full tables into Python memory and doing a pandas merge.
+    sql = text("""
+        SELECT
+            p.*,
+            c.contract_unit_price,
+            CAST(p.unit_price AS REAL) / c.contract_unit_price AS price_drift
+        FROM pos p
+        INNER JOIN contracts c ON CAST(p.contract_id AS TEXT) = CAST(c.contract_id AS TEXT)
+        WHERE c.contract_unit_price > 0
+          AND CAST(p.unit_price AS REAL) / c.contract_unit_price > :threshold
+        ORDER BY price_drift DESC
+    """)
 
     try:
-        pos_df = pd.read_sql("select * from pos", engine)
-        contracts_df = pd.read_sql("select * from contracts", engine)
+        with engine.connect() as conn:
+            drifts = pd.read_sql(sql, conn, params={"threshold": drift_threshold})
     except Exception as e:
         print(f"Error reading from database: {e}")
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+        return _empty_result()
 
-    if pos_df.empty or contracts_df.empty:
-        print("No data in POs or contracts table.")
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+    if drifts.empty:
+        return _empty_result()
 
-    # Ensure contract_id is the same type in both dataframes
-    pos_df['contract_id'] = pos_df['contract_id'].astype(str)
-    contracts_df['contract_id'] = contracts_df['contract_id'].astype(str)
+    # Add Gemini summary column, defaulting to static message
+    drifts['gemini_summary'] = "Drift detected (AI summary skipped for speed)"
 
-    # Merge POs with contracts
-    merged_df = pd.merge(pos_df, contracts_df, on="contract_id", how="left", suffixes=('_po', '_contract'))
-    
-    # Filter for POs with a contract
-    contracted_pos = merged_df[merged_df['contract_unit_price'].notna()].copy()
-    
-    if contracted_pos.empty:
-        return pd.DataFrame(columns=['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary'])
+    # Summarize only the top 5 drifts; run API calls in parallel to reduce latency
+    top_indices = list(drifts.index[:5])
 
-    # Detect price drift
-    contracted_pos['price_drift'] = contracted_pos['unit_price'] / contracted_pos['contract_unit_price']
-    
-    drifts = contracted_pos[contracted_pos['price_drift'] > drift_threshold].copy()
-    
-    # Add Gemini summary - OPTIMIZED: Only summarize top 5 to prevent timeout
-    drifts.sort_values('price_drift', ascending=False, inplace=True)
-    
-    # Initialize with None
-    drifts['gemini_summary'] = None
-    
-    # Take top 5 for AI summary
-    top_5_indices = drifts.index[:5]
-    
-    # Apply Gemini only to top 5
-    for idx in top_5_indices:
+    def _summarize(idx):
         row = drifts.loc[idx]
-        drifts.at[idx, 'gemini_summary'] = summarize_drift_with_gemini(row['contract_unit_price'], row['unit_price'])
-        
-    # Fill the rest with a static message
-    drifts['gemini_summary'] = drifts['gemini_summary'].fillna("Drift detected (AI summary skipped for speed)")
+        return idx, summarize_drift_with_gemini(row['contract_unit_price'], row['unit_price'])
 
-    # Rename columns to match frontend expectation
-    drifts.rename(columns={
-        'vendor_id_po': 'vendor_id',
-        'item_id_po': 'item_id'
-    }, inplace=True)
-    
-    # Ensure we return the columns the frontend expects
-    cols_to_keep = ['po_id', 'vendor_id', 'item_id', 'unit_price', 'qty', 'total', 'date', 'contract_id', 'contract_unit_price', 'price_drift', 'gemini_summary']
-    
-    # Filter for columns that actually exist
-    existing_cols = [c for c in cols_to_keep if c in drifts.columns]
-    
-    # Add missing columns with default values if they don't exist
-    for col in cols_to_keep:
+    with ThreadPoolExecutor(max_workers=min(5, len(top_indices))) as executor:
+        futures = {executor.submit(_summarize, idx): idx for idx in top_indices}
+        for future in as_completed(futures):
+            idx, summary = future.result()
+            drifts.at[idx, 'gemini_summary'] = summary
+
+    # Add any expected columns that are absent (keeps the schema stable)
+    for col in _EXPECTED_COLS:
         if col not in drifts.columns:
             drifts[col] = None
 
@@ -93,7 +81,7 @@ def detect_public_only(drift_threshold: float | None = None):
     drifts = drifts.replace([float('inf'), float('-inf')], None)
     drifts = drifts.where(pd.notnull(drifts), None)
 
-    return drifts[cols_to_keep]
+    return drifts[_EXPECTED_COLS]
 
 def evaluate_with_private_labels():
     # ... (not implemented for now)

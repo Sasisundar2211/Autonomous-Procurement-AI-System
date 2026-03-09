@@ -49,7 +49,8 @@ async def get_task_status(task_id: str):
 
 @app.get("/api/leaks")
 async def get_leaks_api(drift_threshold: float | None = None):
-    leaks = detect_public_only(drift_threshold=drift_threshold)
+    from fastapi.concurrency import run_in_threadpool
+    leaks = await run_in_threadpool(detect_public_only, drift_threshold=drift_threshold)
     return leaks.to_dict(orient="records")
 
 # Import data generator functions
