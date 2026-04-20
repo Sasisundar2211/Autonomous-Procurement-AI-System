@@ -1,30 +1,68 @@
-# Procurement Agent with Gemini
+# Procurement Agent API (FastAPI)
 
-This project is a procurement agent that uses Gemini to detect price drifts in purchase orders.
+Production-oriented procurement drift detection service built with FastAPI.
 
-## Running with Docker
+## Architecture
 
-1.  **Build the Docker image:**
+The backend now follows a modular structure:
 
-    ```bash
-    docker build -t procurement-agent .
-    ```
+- `src/api/`: FastAPI app, routers, and route handlers
+- `src/services/`: business logic (detection, simulation, ingestion, task orchestration)
+- `src/models/`: Pydantic API contracts and task store primitives
+- `src/utils/`: settings, database engine, logging, serialization helpers
 
-2.  **Run the Docker container:**
+Legacy paths (`src/api/fastapi_app.py`, `src/agents/*`) are kept as compatibility wrappers.
 
-    ```bash
-    docker run -p 8000:8000 procurement-agent
-    ```
+## Quickstart
 
-Open your browser and navigate to `http://localhost:8000` to use the application.
+1. Create a virtual environment and install dependencies:
 
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-Setup & Installation
-1. Clone the repo.
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set your Google API Key: `export GEMINI_API_KEY="your_key"`
-4. Run the backend: `uvicorn main:app --reload`
-5. Launch the React dashboard.
+2. Configure environment variables:
 
- Deployment
-The agents are containerized using Docker and are ready for deployment on **Google Cloud Run** to ensure high availability and auto-scaling.
+```bash
+cp .env.example .env
+```
+
+3. Generate and ingest demo data:
+
+```bash
+python data_generator.py
+python -c "from src.agents.ingestor import run; run()"
+```
+
+4. Start the API:
+
+```bash
+uvicorn src.api.main:app --reload --port 8000
+```
+
+5. (Optional) Start the frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## API Endpoints
+
+- `GET /api/health`: health/version check
+- `GET /api/leaks`: current drift detections
+- `POST /api/run-detection`: start async detection task
+- `GET /api/run-detection/{task_id}`: poll task status
+- `POST /api/simulate-traffic`: append synthetic traffic for demos
+
+## Docker
+
+```bash
+docker build -t procurement-agent .
+docker run -p 8000:8000 procurement-agent
+```
+
+The API is exposed at `http://localhost:8000`.
