@@ -57,6 +57,51 @@ npm run dev
 - `POST /api/run-detection`: start async detection task
 - `GET /api/run-detection/{task_id}`: poll task status
 - `POST /api/simulate-traffic`: append synthetic traffic for demos
+- `POST /api/vendors/rank`: upload CSV and return weighted vendor ranking
+- `POST /api/vendors/explain-ranking`: upload ranked CSV and get short OpenAI business summary
+
+## Vendor Ranking (CSV -> Ranked Vendors)
+
+Use weighted scoring to rank vendors from a CSV file.
+
+CLI usage:
+
+```bash
+python scripts/rank_vendors.py input.csv -o ranked_vendors.csv --weights "unit_price:-0.5,on_time_rate:0.3,quality_score:0.2"
+```
+
+Notes:
+
+- `vendor_id` is used by default as the vendor key (`--vendor-column` to change).
+- Positive weight means higher metric is better.
+- Negative weight means lower metric is better (for example cost/price/risk metrics).
+
+## Vendor Ranking Explanation (OpenAI)
+
+Generate a short, business-focused summary from ranked vendor results:
+
+```bash
+python scripts/explain_vendor_ranking.py ranked_vendors.csv --top-n 3
+```
+
+Required environment variable:
+
+- `OPENAI_API_KEY`
+
+## Streamlit App
+
+Run an interactive app to upload CSV, rank vendors, and generate a short explanation:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+In the app:
+
+- Upload vendor metrics CSV
+- Set optional weights and vendor column
+- View ranked vendors and download ranked output CSV
+- Generate a short business-focused explanation with OpenAI
 
 ## Docker
 

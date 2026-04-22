@@ -1,0 +1,5 @@
+vendor,price,delivery_days,reliability,defect_rate
+A,1000,5,0.9,0.02
+B,950,7,0.85,0.03
+C,1100,4,0.95,0.01
+D,980,6,0.88,0.025

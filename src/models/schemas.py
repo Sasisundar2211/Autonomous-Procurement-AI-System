@@ -48,3 +48,16 @@ class SimulationResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class VendorRankResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    vendor_id: str | int
+    weighted_score: float
+    rank: int
+    weight_profile: str
+
+
+class VendorRankingExplanationResponse(BaseModel):
+    explanation: str
