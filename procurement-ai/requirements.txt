@@ -5,3 +5,5 @@ openai
 streamlit
 requests
 python-multipart
+scikit-learn
+python-dotenv

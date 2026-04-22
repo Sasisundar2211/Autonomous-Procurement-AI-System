@@ -2,9 +2,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 import pandas as pd
 
 from app.models.schema import AnalyzeResponse
-from app.services.llm import generate_explanation
-from app.services.scoring import rank_vendors
-from app.utils.preprocess import preprocess_vendor_data
+from app.services.agent_controller import run_pipeline
 
 router = APIRouter()
 
@@ -16,18 +14,10 @@ async def analyze(file: UploadFile = File(...)) -> AnalyzeResponse:
 
     try:
         df = pd.read_csv(file.file)
-        cleaned = preprocess_vendor_data(df)
-        ranked = rank_vendors(cleaned)
-
-        top = ranked.iloc[0]
-        explanation = generate_explanation(top["vendor"], top)
+        result = run_pipeline(df)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Failed to analyze vendor data: {exc}") from exc
 
-    return AnalyzeResponse(
-        top_vendor=str(top["vendor"]),
-        ranking=ranked.to_dict(orient="records"),
-        explanation=explanation,
-    )
+    return AnalyzeResponse(**result)

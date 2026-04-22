@@ -9,6 +9,7 @@ def generate_explanation(top_vendor: str, row) -> str:
         return "Top vendor selected based on strongest weighted score across cost, delivery, quality, and defect performance."
 
     client = OpenAI(api_key=api_key)
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     prompt = f"""
 Explain why vendor {top_vendor} is selected.
 Data: {row.to_dict()}
@@ -16,7 +17,7 @@ Keep it short and business-focused.
 """
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=model,
         messages=[
             {
                 "role": "system",
